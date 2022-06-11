@@ -5,7 +5,7 @@
 #include "gdal_priv.h"
 #include "cpl_conv.h" // for CPLMalloc()
 
-
+using namespace Eigen;
 
 class Chunk {
 private:
@@ -19,11 +19,47 @@ private:
                 xOffset, yOffset + row, size, 1,
                 block[row], size, 1, GDT_Int32,
                 0, 0);
-            int* intPtr = block[row];
         }
 
         return block;
     }
+
+    float* chunkVector(int** block, int size) {
+        int sq = size * size;
+        float* arr = new float[size*size];
+
+        for (int q = 0; q < size; q++) {
+            for (int t = 0; t < size; t++) {
+                arr[q * size + t] = block[q][t];
+            }
+        }
+
+
+        Map<VectorXf> b(arr, size*size);
+
+
+        VectorXi v(sq), a1(sq), a2(sq), a3(sq);
+
+        v = VectorXi::LinSpaced(sq, 0, sq - 1);
+        a1 = v.unaryExpr([size](const int x) { return x % size; });
+        a2 = v / size;
+        a3.setConstant(1);
+
+        MatrixXi m(sq, 3);
+        m << a1, a2, a3;
+        MatrixXf f = m.cast<float>();
+        
+        ColPivHouseholderQR<MatrixXf> dec(f);
+        Vector3f x = dec.solve(b);
+
+        std::cout << x << std::endl;
+
+
+
+        delete arr;
+        return 0;
+    }
+
 
 public:
     int size;
@@ -31,6 +67,8 @@ public:
     int yOffset;
     int increment;
     int** chunk;
+    float* vector;
+    
 
     // Constructor
     Chunk(int chunkSize, int chunkOffsetX, int chunkOffsetY, int chunkInc, GDALRasterBand* band) {
@@ -39,6 +77,7 @@ public:
         yOffset = chunkOffsetY;
 
         chunk = getChunk(band);
+        vector = chunkVector(chunk, size);
     }
 
 
@@ -55,13 +94,6 @@ public:
 
 
 
-    void chunkVector() {
-        struct pointVals {
-            int xIndex;
-            int yIndex;
-            int zVal;
-        };
-    }
 
 
     
@@ -83,11 +115,12 @@ int main() {
     poDataset->GetGeoTransform(adfGeoTransform);
 
     // Global Variables
-    int   CHUNK_SIZE = 16;
+    int   CHUNK_SIZE = 4;
     int   GRID_SIZE = 1;
     double PIXEL_WIDTH = adfGeoTransform[1];
     int   X_ORIGIN = adfGeoTransform[0];
     int   Y_ORIGIN = adfGeoTransform[3]; // Starting from top left corner
+
 
 
 
@@ -97,13 +130,18 @@ int main() {
     }
 
 
+
     Chunk test = Chunk(CHUNK_SIZE, 0, 0, 1, poBand);
     std::array<double, 4> arr = test.chunkLocation(X_ORIGIN, Y_ORIGIN, PIXEL_WIDTH);
 
+    /*
     for (int i = 0; i < CHUNK_SIZE; ++i) {
         for (int j = 0; j < CHUNK_SIZE; ++j) {
             std::cout << test.chunk[i][j] << " ";
         }
         std::cout << "\n";
     }
+
+    */
+
 }
