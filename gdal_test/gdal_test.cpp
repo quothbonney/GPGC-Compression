@@ -5,81 +5,50 @@
 #include "gdal_priv.h"
 #include "cpl_conv.h" // for CPLMalloc()
 
+
+GDALRasterBand* poBand;
+// Global Variables
+int   CHUNK_SIZE = 4;
+int   GRID_SIZE = 1;
+double PIXEL_WIDTH;
+int   X_ORIGIN, Y_ORIGIN;
 using namespace Eigen;
 
 class Chunk {
 private:
-    int** getChunk(GDALRasterBand* poBand) {
-        int** block;
-        block = (int**)CPLMalloc(sizeof(int*) * size);
 
-        for (int row = xOffset; row < size; row++) {
-            block[row] = (int*)CPLMalloc(sizeof(int) * size); // Allocating memory for next row  
-            poBand->RasterIO(GF_Read, 
-                xOffset, yOffset + row, size, 1,
-                block[row], size, 1, GDT_Int32,
-                0, 0);
-        }
 
-        return block;
-    }
-
-    float* chunkVector(int** block, int size) {
-        int sq = size * size;
-        float* arr = new float[size*size];
+    std::vector<float> valueVec(int** block, int size) {
+        std::vector<float> floatVector;
 
         for (int q = 0; q < size; q++) {
             for (int t = 0; t < size; t++) {
-                arr[q * size + t] = block[q][t];
+                floatVector.push_back(block[q][t]);  // Turns the 2d array into a 1d std::vector so it can be mapped to b vector
             }
         }
 
-
-        Map<VectorXf> b(arr, size*size);
-
-
-        VectorXi v(sq), a1(sq), a2(sq), a3(sq);
-
-        v = VectorXi::LinSpaced(sq, 0, sq - 1);
-        a1 = v.unaryExpr([size](const int x) { return x % size; });
-        a2 = v / size;
-        a3.setConstant(1);
-
-        MatrixXi m(sq, 3);
-        m << a1, a2, a3;
-        MatrixXf f = m.cast<float>();
-        
-        ColPivHouseholderQR<MatrixXf> dec(f);
-        Vector3f x = dec.solve(b);
-
-        std::cout << x << std::endl;
-
-
-
-        delete arr;
-        return 0;
+        return floatVector;
     }
 
 
 public:
-    int size;
-    int xOffset;
-    int yOffset;
-    int increment;
+    int size, xOffset, yOffset, increment;
     int** chunk;
-    float* vector;
+    Vector3f vector;
+    std::vector<float> valueVector;
     
-
     // Constructor
-    Chunk(int chunkSize, int chunkOffsetX, int chunkOffsetY, int chunkInc, GDALRasterBand* band) {
-        size = chunkSize;
-        xOffset = chunkOffsetX;
-        yOffset = chunkOffsetY;
+    Chunk(int size, int xOffset, int yOffset, int increment) {
+        Chunk* e = this;
+        e->size      = size;
+        e->xOffset   = xOffset;
+        e->yOffset   = yOffset;
+        e->increment = increment;
 
-        chunk = getChunk(band);
-        vector = chunkVector(chunk, size);
+        chunk  = getChunk(poBand);
+        valueVector = valueVec(chunk, size);
+        vector = chunkVector();
     }
-
 
 
     std::array<double, 4> chunkLocation(double X_ORIGIN, double Y_ORIGIN, double PIXEL_WIDTH) {
@@ -93,10 +62,45 @@ public:
     }
 
 
+    int** getChunk(GDALRasterBand* poBand) {
+        int** block;
+        block = (int**)CPLMalloc(sizeof(int*) * size);
+
+        for (int row = xOffset; row < size; row++) {
+            block[row] = (int*)CPLMalloc(sizeof(int) * size); // Allocating memory for next row  
+            poBand->RasterIO(GF_Read,
+                xOffset, yOffset + row, size, 1,
+                block[row], size, 1, GDT_Int32,
+                0, 0);
+        }
+
+        return block;
+    }
+
+    Eigen::Vector3f chunkVector() {
+        int size = this->size;
+        int sq = size * size;
+        float* fVptr = &valueVector[0];              // Necessary for Eigen::Map
+
+        Eigen::Map<Eigen::VectorXf> b(fVptr, size * size);
 
 
+        Eigen::VectorXi v(sq), a1(sq), a2(sq), a3(sq);
 
-    
+        v = Eigen::VectorXi::LinSpaced(sq, 0, sq - 1);
+        a1 = v.unaryExpr([size](const int x) { return x % size; });  // Hacky mod(size) to get every x
+        a2 = v / size;                                               // Get every y by dividing by 8 (integer typecast auto floor)
+        a3.setConstant(1);
+
+        Eigen::MatrixXi m(sq, 3);
+        m << a1, a2, a3;
+        Eigen::MatrixXf f = m.cast<float>();
+
+        Eigen::ColPivHouseholderQR<Eigen::MatrixXf> dec(f);  // Convienent Eigen function to solve for x-bar vector. Saves difficult matrix algebra with LU algorithm
+        Eigen::Vector3f x = dec.solve(b);
+
+        return x;
+    }
 };
 
 
@@ -107,7 +111,7 @@ int main() {
     const char* pszFilename = "C:\\Users\\jacki\\source\\repos\\gdal_test\\gdal_test\\x64\\src\\n00_e010_1arc_v3.tif";
     poDataset = (GDALDataset*)GDALOpen(pszFilename, GA_ReadOnly);
 
-    auto poBand = poDataset->GetRasterBand(1);
+    poBand = poDataset->GetRasterBand(1);
 
     static int nXSize = poBand->GetXSize();
     static int nYSize = poBand->GetYSize();
@@ -115,11 +119,9 @@ int main() {
     poDataset->GetGeoTransform(adfGeoTransform);
 
     // Global Variables
-    int   CHUNK_SIZE = 4;
-    int   GRID_SIZE = 1;
-    double PIXEL_WIDTH = adfGeoTransform[1];
-    int   X_ORIGIN = adfGeoTransform[0];
-    int   Y_ORIGIN = adfGeoTransform[3]; // Starting from top left corner
+    PIXEL_WIDTH = adfGeoTransform[1];
+    X_ORIGIN = adfGeoTransform[0];
+    Y_ORIGIN = adfGeoTransform[3]; // Starting from top left corner
 
 
 
@@ -131,17 +133,10 @@ int main() {
 
 
 
-    Chunk test = Chunk(CHUNK_SIZE, 0, 0, 1, poBand);
-    std::array<double, 4> arr = test.chunkLocation(X_ORIGIN, Y_ORIGIN, PIXEL_WIDTH);
+    Chunk test = Chunk(CHUNK_SIZE, 0, 0, 1);
+    Eigen::Vector3f fit = test.vector;
 
-    /*
-    for (int i = 0; i < CHUNK_SIZE; ++i) {
-        for (int j = 0; j < CHUNK_SIZE; ++j) {
-            std::cout << test.chunk[i][j] << " ";
-        }
-        std::cout << "\n";
-    }
+    std::cout << fit << std::endl;
 
-    */
 
 }
