@@ -1,0 +1,2 @@
+C:/Users/jacki/source/repos/gdal_test/cmake-build-debug-visual-studio-1/CMakeFiles/edit_cache.dir
+C:/Users/jacki/source/repos/gdal_test/cmake-build-debug-visual-studio-1/CMakeFiles/rebuild_cache.dir

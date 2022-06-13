@@ -17,37 +17,25 @@ using namespace Eigen;
 class Chunk {
 private:
 
-
-    std::vector<float> valueVec(int** block, int size) {
-        std::vector<float> floatVector;
-
-        for (int q = 0; q < size; q++) {
-            for (int t = 0; t < size; t++) {
-                floatVector.push_back(block[q][t]);  // Turns the 2d array into a 1d std::vector so it can be mapped to b vector
-            }
-        }
-
-        return floatVector;
-    }
-
-
 public:
     int size, xOffset, yOffset, increment;
     int** chunk;
-    Vector3f vector;
-    std::vector<float> valueVector;
-    
+    Vector3f fit;
+    std::vector<float> altVector, expected;
+
     // Constructor
     Chunk(int size, int xOffset, int yOffset, int increment) {
         Chunk* e = this;
-        e->size      = size;
-        e->xOffset   = xOffset;
-        e->yOffset   = yOffset;
+        e->size = size;
+        e->xOffset = xOffset;
+        e->yOffset = yOffset;
         e->increment = increment;
 
-        chunk  = getChunk(poBand);
-        valueVector = valueVec(chunk, size);
-        vector = chunkVector();
+        chunk = getChunk(poBand);
+        altVector = altitudeVector(chunk, size);
+        fit = fitVector();
+
+        expected = expectedVector();
     }
 
 
@@ -77,10 +65,11 @@ public:
         return block;
     }
 
-    Eigen::Vector3f chunkVector() {
+
+    Eigen::Vector3f fitVector() {
         int size = this->size;
         int sq = size * size;
-        float* fVptr = &valueVector[0];              // Necessary for Eigen::Map
+        float* fVptr = &altVector[0];              // Necessary for Eigen::Map
 
         Eigen::Map<Eigen::VectorXf> b(fVptr, size * size);
 
@@ -101,6 +90,34 @@ public:
 
         return x;
     }
+
+
+    std::vector<float> altitudeVector(int** block, int size) {
+        std::vector<float> floatVector;
+
+        for (int q = 0; q < size; q++) {
+            for (int t = 0; t < size; t++) {
+                floatVector.push_back(block[q][t]);  // Turns the 2d array into a 1d std::vector so it can be mapped to b vector
+            }
+        }
+
+        return floatVector;
+    }
+
+    std::vector<float> expectedVector() {
+        int size = this->size;
+
+        std::vector<float> expect;
+        for (int row = 0; row < size; row++) {
+            for (int elem = 0; elem < size; elem++) {
+                float z = (elem * fit[0]) + (row * fit[1]) + fit[2];
+                expect.push_back(z);
+            }
+        }
+        return expect;
+    }
+
+
 };
 
 
@@ -134,9 +151,12 @@ int main() {
 
 
     Chunk test = Chunk(CHUNK_SIZE, 0, 0, 1);
-    Eigen::Vector3f fit = test.vector;
 
-    std::cout << fit << std::endl;
+    auto alts = test.altVector;
+    auto expts = test.expected;
 
-
+    for (int i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++) {
+        float dif = alts[i] - expts[i];
+        std::cout << dif << std::endl;
+    }
 }
