@@ -2,16 +2,20 @@
 #include <vector>
 #include <Eigen/Dense>
 #include <array>
+#include <cstdlib>
+#include <math.h>
 #include "gdal_priv.h"
 #include "cpl_conv.h" // for CPLMalloc()
 
 
 GDALRasterBand* poBand;
 // Global Variables
-int   CHUNK_SIZE = 4;
-int   GRID_SIZE = 1;
+int   CHUNK_SIZE = 64;
+int   GRID_SIZE = 4;
 double PIXEL_WIDTH;
 int   X_ORIGIN, Y_ORIGIN;
+int   nodes = 0;
+
 using namespace Eigen;
 
 class Chunk {
@@ -21,7 +25,8 @@ public:
     int size, xOffset, yOffset, increment;
     int** chunk;
     Vector3f fit;
-    std::vector<float> altVector, expected;
+    std::vector<float> altVector;
+    float info;
 
     // Constructor
     Chunk(int size, int xOffset, int yOffset, int increment) {
@@ -32,10 +37,13 @@ public:
         e->increment = increment;
 
         chunk = getChunk(poBand);
-        altVector = altitudeVector(chunk, size);
+        altVector = altitudeVector();
         fit = fitVector();
 
-        expected = expectedVector();
+        info = information();
+
+        subchunk();
+        
     }
 
 
@@ -52,9 +60,9 @@ public:
 
     int** getChunk(GDALRasterBand* poBand) {
         int** block;
-        block = (int**)CPLMalloc(sizeof(int*) * size);
+        block = (int**)CPLMalloc(sizeof(int*) * size*size);
 
-        for (int row = xOffset; row < size; row++) {
+        for (int row = 0; row < size; row++) {
             block[row] = (int*)CPLMalloc(sizeof(int) * size); // Allocating memory for next row  
             poBand->RasterIO(GF_Read,
                 xOffset, yOffset + row, size, 1,
@@ -64,7 +72,6 @@ public:
 
         return block;
     }
-
 
     Eigen::Vector3f fitVector() {
         int size = this->size;
@@ -92,29 +99,50 @@ public:
     }
 
 
-    std::vector<float> altitudeVector(int** block, int size) {
+    std::vector<float> altitudeVector() {
         std::vector<float> floatVector;
 
         for (int q = 0; q < size; q++) {
             for (int t = 0; t < size; t++) {
-                floatVector.push_back(block[q][t]);  // Turns the 2d array into a 1d std::vector so it can be mapped to b vector
+                floatVector.push_back(chunk[q][t]);  // Turns the 2d array into a 1d std::vector so it can be mapped to b vector
             }
         }
 
         return floatVector;
     }
 
-    std::vector<float> expectedVector() {
+    float information() {
         int size = this->size;
+        float info = 0;
 
-        std::vector<float> expect;
         for (int row = 0; row < size; row++) {
             for (int elem = 0; elem < size; elem++) {
-                float z = (elem * fit[0]) + (row * fit[1]) + fit[2];
-                expect.push_back(z);
+                float z = (elem * fit[0]) + (row * fit[1]) + fit[2];  // In form ax+by+z for vector
+                float dif = altVector[(row*size)+elem] - z;  // Subtracts the correct value from each
+                float score = std::abs(dif / 30);  // Assuming sigma = 30 (arbitrary)
+                float P_ak = 1 / std::pow(4.0, score);
+                float pointInfo = -(std::log2(P_ak));
+                info += pointInfo;
             }
         }
-        return expect;
+        float adjusted = (info * (increment * increment) / (size * size));
+
+        return adjusted;
+    }
+
+    void subchunk() {
+        if (info > 0.4 && size >= 4) {
+            int new_size = size / 2;
+            Chunk child1 = Chunk(new_size, xOffset, yOffset, increment);
+            Chunk child2 = Chunk(new_size, xOffset + new_size, yOffset, increment);
+            Chunk child3 = Chunk(new_size, xOffset, yOffset + new_size, increment);
+            Chunk child4 = Chunk(new_size, xOffset + new_size, yOffset + new_size, increment);
+        }
+        else {
+            nodes++;
+            /*std::cout << "Leaf with size " << size << " at (" << xOffset << ", " << yOffset << ") with information ";
+            std::cout << info << " bits." << std::endl;*/
+        }
     }
 
 
@@ -125,7 +153,7 @@ int main() {
     // Initialize GDAL with file
     GDALDataset* poDataset;
     GDALAllRegister();
-    const char* pszFilename = "C:\\Users\\jacki\\source\\repos\\gdal_test\\gdal_test\\x64\\src\\n00_e010_1arc_v3.tif";
+    const char* pszFilename = "C:\\Users\\jacki\\PycharmProjects\\pythonProject2\\n00_e010_1arc_v3.tif";
     poDataset = (GDALDataset*)GDALOpen(pszFilename, GA_ReadOnly);
 
     poBand = poDataset->GetRasterBand(1);
@@ -141,22 +169,24 @@ int main() {
     Y_ORIGIN = adfGeoTransform[3]; // Starting from top left corner
 
 
-
-
     if (CHUNK_SIZE * GRID_SIZE > (nXSize | nYSize)) {
         std::cerr << "Grid exceeds original raster size";
         exit(1);
     }
 
 
+    for (int gridRow = 0; gridRow < GRID_SIZE; gridRow++) {
+        for (int gridElem = 0; gridElem < GRID_SIZE; gridElem++) {
+            int workingOffsetX = gridElem * CHUNK_SIZE;
+            int workingOffsetY = gridRow * CHUNK_SIZE;
 
-    Chunk test = Chunk(CHUNK_SIZE, 0, 0, 1);
+            Chunk working = Chunk(CHUNK_SIZE, workingOffsetX, workingOffsetY, 1);
 
-    auto alts = test.altVector;
-    auto expts = test.expected;
+            
 
-    for (int i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++) {
-        float dif = alts[i] - expts[i];
-        std::cout << dif << std::endl;
+            CPLFree(working.chunk);  // Frees the memory malloced in Chunk.getChunk method for returned array
+        }
     }
+
+    std::cout << nodes;
 }
