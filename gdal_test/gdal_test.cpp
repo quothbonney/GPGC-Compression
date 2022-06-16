@@ -122,6 +122,7 @@ public:
                 float score = std::abs(dif / 30);  // Assuming sigma = 30 (arbitrary)
                 float P_ak = 1 / std::pow(4.0, score);
                 float pointInfo = -(std::log2(P_ak));
+
                 info += pointInfo;
             }
         }
