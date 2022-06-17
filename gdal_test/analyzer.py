@@ -8,7 +8,7 @@ if __name__ == '__main__':
         lines = f.readlines()
 
     for line in lines:
-        a = line.split(" ")
+        a = line.split(" ");
         i, j, k, n, xOff, yOff = [float(a[0]), float(a[1]), float(a[2]), int(a[3]), int(a[4]), int(a[5])]
 
         elem, row = 0, 0
