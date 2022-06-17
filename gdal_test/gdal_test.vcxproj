@@ -104,7 +104,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\Users\jacki\Downloads\eigen-3.4.0\Eigen;C:\Users\jacki\anaconda3\pkgs\libgdal-3.0.2-ha1b3edf_1\Library\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\jacki\Downloads\eigen-3.4.0\Eigen;C:\Users\jacki\anaconda3\pkgs\libgdal-3.0.2-ha1b3edf_1\Library\include;C:\Users\jacki\Downloads\half-2.2.0\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

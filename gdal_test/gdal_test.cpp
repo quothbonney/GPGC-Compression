@@ -4,8 +4,10 @@
 #include <array>
 #include <cstdlib>
 #include <math.h>
+#include <fstream>
 #include "gdal_priv.h"
 #include "cpl_conv.h" // for CPLMalloc()
+#include "half.hpp"
 
 
 GDALRasterBand* poBand;
@@ -15,6 +17,7 @@ int   GRID_SIZE = 4;
 double PIXEL_WIDTH;
 int   X_ORIGIN, Y_ORIGIN;
 int   nodes = 0;
+std::ofstream Encoded("encoded.txt");
 
 using namespace Eigen;
 
@@ -39,10 +42,11 @@ public:
         chunk = getChunk(poBand);
         altVector = altitudeVector();
         fit = fitVector();
+        half i(fit[0]), j(fit[1]), k(fit[2]);
 
-        info = information();
+        info = information(i, j, k);
 
-        subchunk();
+        subchunk(i, j, k);
         
     }
 
@@ -111,13 +115,13 @@ public:
         return floatVector;
     }
 
-    float information() {
+    float information(half i, half j, half k) {
         int size = this->size;
         float info = 0;
 
         for (int row = 0; row < size; row++) {
             for (int elem = 0; elem < size; elem++) {
-                float z = (elem * fit[0]) + (row * fit[1]) + fit[2];  // In form ax+by+z for vector
+                float z = (elem * i) + (row * j) + k;  // In form ax+by+z for vector
                 float dif = altVector[(row*size)+elem] - z;  // Subtracts the correct value from each
                 float score = std::abs(dif / 30);  // Assuming sigma = 30 (arbitrary)
                 float P_ak = 1 / std::pow(4.0, score);
@@ -131,8 +135,8 @@ public:
         return adjusted;
     }
 
-    void subchunk() {
-        if (info > 0.4 && size >= 4) {
+    void subchunk(half i, half j, half k) {
+        if (info > 0.3 && size >= 4) {
             int new_size = size / 2;
             Chunk child1 = Chunk(new_size, xOffset, yOffset, increment);
             Chunk child2 = Chunk(new_size, xOffset + new_size, yOffset, increment);
@@ -141,8 +145,9 @@ public:
         }
         else {
             nodes++;
-            /*std::cout << "Leaf with size " << size << " at (" << xOffset << ", " << yOffset << ") with information ";
-            std::cout << info << " bits." << std::endl;*/
+    
+ 
+            Encoded << i << " " << j << " " << k << " " << size << "\n";
         }
     }
 
@@ -154,7 +159,7 @@ int main() {
     // Initialize GDAL with file
     GDALDataset* poDataset;
     GDALAllRegister();
-    const char* pszFilename = "C:\\Users\\jacki\\PycharmProjects\\pythonProject2\\n00_e010_1arc_v3.tif";
+    const char* pszFilename = "C:\\Users\\jacki\\PycharmProjects\\pythonProject2\\tifs\\kansas_n32_w093_1arc_v1.tif";
     poDataset = (GDALDataset*)GDALOpen(pszFilename, GA_ReadOnly);
 
     poBand = poDataset->GetRasterBand(1);
